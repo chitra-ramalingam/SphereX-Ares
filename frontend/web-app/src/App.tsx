@@ -36,12 +36,13 @@ export function App() {
   const [isPlaying, setIsPlaying] = useState<boolean>(false); // OFF by default
   const [fps, setFps] = useState<number>(2);
 
-  // Raw Image Calibration Controls (Default: Visible RGB composite)
+  // Raw Image Calibration Controls (Default: Inferno single-band rendering)
   const [stretch, setStretch] = useState<string>('linear');
-  const [colormap, setColormap] = useState<string>('rgb'); // Visible RGB Composite by default
+  const [colormap, setColormap] = useState<string>('inferno');
   const [minCutPercent, setMinCutPercent] = useState<number>(2); // Slider: 2%
   const [maxCutPercent, setMaxCutPercent] = useState<number>(98); // Slider: 98%
   const [selectedDetector, setSelectedDetector] = useState<string>('all');
+  const [cleanImages, setCleanImages] = useState<boolean>(false);
 
   // Candidate Investigation State
   const [investigationMarker, setInvestigationMarker] = useState<{ x: number; y: number } | null>(null);
@@ -141,7 +142,7 @@ export function App() {
   const handleCanvasClick = (normX: number, normY: number) => {
     setInvestigationMarker({ x: normX, y: normY });
     setIsInvestigating(true);
-    fetchJson(`/api/investigate?x=${normX}&y=${normY}&frame=${epochIdx}`)
+    fetchJson(`/api/investigate?x=${normX}&y=${normY}&frame=${epochIdx}&clean=${cleanImages ? 1 : 0}`)
       .then((report) => {
         setCandidateReport(report);
         setIsInvestigating(false);
@@ -174,8 +175,8 @@ export function App() {
   // Streaming URL: Visible RGB composite by default, or single-band with chosen stretch/cuts
   const imageSrc =
     colormap === 'rgb'
-      ? apiUrl('/api/rgb')
-      : apiUrl(`/api/render?filename=${encodeURIComponent(activeFitsFile)}&colormap=${encodeURIComponent(colormap)}&stretch=${encodeURIComponent(stretch)}&min_cut_percent=${minCutPercent}&max_cut_percent=${maxCutPercent}&clean=0`);
+      ? apiUrl(`/api/rgb?clean=${cleanImages ? 1 : 0}`)
+      : apiUrl(`/api/render?filename=${encodeURIComponent(activeFitsFile)}&colormap=${encodeURIComponent(colormap)}&stretch=${encodeURIComponent(stretch)}&min_cut_percent=${minCutPercent}&max_cut_percent=${maxCutPercent}&clean=${cleanImages ? 1 : 0}`);
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#070b14', color: '#f1f5f9', display: 'flex', flexDirection: 'column' }}>
@@ -352,6 +353,8 @@ export function App() {
                 onChangeColormap={setColormap}
                 selectedDetector={selectedDetector}
                 onChangeDetector={(d) => { setSelectedDetector(d); setEpochIdx(0); }}
+                cleanImages={cleanImages}
+                onChangeCleanImages={setCleanImages}
               />
             ) : (
               <SpectralControls

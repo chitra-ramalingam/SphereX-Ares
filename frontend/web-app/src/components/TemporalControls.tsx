@@ -23,6 +23,8 @@ interface TemporalControlsProps {
   onChangeColormap: (v: string) => void;
   selectedDetector: string;
   onChangeDetector: (v: string) => void;
+  cleanImages: boolean;
+  onChangeCleanImages: (v: boolean) => void;
 }
 
 export const TemporalControls: React.FC<TemporalControlsProps> = ({
@@ -48,6 +50,8 @@ export const TemporalControls: React.FC<TemporalControlsProps> = ({
   onChangeColormap,
   selectedDetector,
   onChangeDetector,
+  cleanImages,
+  onChangeCleanImages,
 }) => {
   return (
     <div style={{
@@ -144,7 +148,7 @@ export const TemporalControls: React.FC<TemporalControlsProps> = ({
         gap: '12px',
         alignItems: 'center',
       }}>
-        {/* Color Palette (Default: Visible RGB Composite) */}
+        {/* Color Palette (Default: Inferno) */}
         <div>
           <label style={{ display: 'block', color: '#94a3b8', fontSize: '10px', marginBottom: '4px' }}>Render Mode / Palette</label>
           <select
@@ -152,9 +156,9 @@ export const TemporalControls: React.FC<TemporalControlsProps> = ({
             onChange={(e) => onChangeColormap(e.target.value)}
             style={{ width: '100%', padding: '5px 6px', backgroundColor: '#0c1322', border: '1px solid #1e293b', color: '#fff', borderRadius: '4px' }}
           >
-            <option value="rgb">Visible RGB Composite (Default)</option>
+            <option value="rgb">Visible RGB Composite</option>
             <option value="gray">Greyscale (Raw Instrument)</option>
-            <option value="inferno">Inferno</option>
+            <option value="inferno">Inferno (Default)</option>
             <option value="viridis">Viridis</option>
             <option value="magma">Magma</option>
             <option value="plasma">Plasma</option>
@@ -172,6 +176,19 @@ export const TemporalControls: React.FC<TemporalControlsProps> = ({
             <option value="linear">Linear</option>
             <option value="asinh">asinh (Astrophysical Softness)</option>
             <option value="log">Logarithmic</option>
+          </select>
+        </div>
+
+        {/* Scientific cleaning selector */}
+        <div>
+          <label style={{ display: 'block', color: '#94a3b8', fontSize: '10px', marginBottom: '4px' }}>Image Processing</label>
+          <select
+            value={cleanImages ? 'cleaned' : 'raw'}
+            onChange={(e) => onChangeCleanImages(e.target.value === 'cleaned')}
+            style={{ width: '100%', padding: '5px 6px', backgroundColor: '#0c1322', border: '1px solid #1e293b', color: '#fff', borderRadius: '4px' }}
+          >
+            <option value="raw">Raw FITS Measurements</option>
+            <option value="cleaned">Quality-Masked + Background-Corrected</option>
           </select>
         </div>
 

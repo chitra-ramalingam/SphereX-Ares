@@ -502,6 +502,7 @@ class SpherexApiHandler(BaseHTTPRequestHandler):
 
     def handle_rgb(self, query: dict[str, list[str]]) -> None:
         """Real 3-Band Hyperspectral RGB Composite of SPHEREx detector channels."""
+        clean_enabled = query.get("clean", ["0"])[0].lower() in {"1", "true"}
         files = list(self.paths.raw.glob("**/*.fits"))
         if len(files) < 3:
             self.send_error(400, "Need at least 3 FITS files to compose an RGB hyperspectral view")
@@ -513,6 +514,23 @@ class SpherexApiHandler(BaseHTTPRequestHandler):
             dr = hr["IMAGE"].data if "IMAGE" in hr else hr[0].data
             dg = hg["IMAGE"].data if "IMAGE" in hg else hg[0].data
             db = hb["IMAGE"].data if "IMAGE" in hb else hb[0].data
+            if clean_enabled:
+                cleaner = SpherexImageCleaner()
+
+                def clean_channel(hdul: Any, data: np.ndarray) -> np.ndarray:
+                    image_hdu = hdul["IMAGE"] if "IMAGE" in hdul else hdul[0]
+                    result = cleaner.clean(
+                        data,
+                        flags=hdul["FLAGS"].data if "FLAGS" in hdul else None,
+                        variance=hdul["VARIANCE"].data if "VARIANCE" in hdul else None,
+                        header=image_hdu.header,
+                        zodi=hdul["ZODI"].data if "ZODI" in hdul else None,
+                    )
+                    return np.asarray(result["cleaned_image"], dtype=float)
+
+                dr = clean_channel(hr, dr)
+                dg = clean_channel(hg, dg)
+                db = clean_channel(hb, db)
 
         # Resize/crop arrays to smallest matching shape
         min_h = min(dr.shape[0], dg.shape[0], db.shape[0])
@@ -566,6 +584,8 @@ class SpherexApiHandler(BaseHTTPRequestHandler):
             self.send_error(400, "Invalid x, y or frame coordinate parameters")
             return
 
+        clean_enabled = query.get("clean", ["0"])[0].lower() in {"1", "true"}
+
         files = sorted(list(self.paths.raw.glob("**/*.fits")), key=lambda p: p.stat().st_mtime)
         if len(files) < 2:
             self.send_json({
@@ -584,6 +604,15 @@ class SpherexApiHandler(BaseHTTPRequestHandler):
             with fits.open(f) as hdul:
                 hdr = hdul["IMAGE"].header if "IMAGE" in hdul else hdul[0].header
                 data = hdul["IMAGE"].data if "IMAGE" in hdul else hdul[0].data
+                if clean_enabled:
+                    clean_result = SpherexImageCleaner().clean(
+                        data,
+                        flags=hdul["FLAGS"].data if "FLAGS" in hdul else None,
+                        variance=hdul["VARIANCE"].data if "VARIANCE" in hdul else None,
+                        header=hdr,
+                        zodi=hdul["ZODI"].data if "ZODI" in hdul else None,
+                    )
+                    data = clean_result["cleaned_image"]
                 wcs = WCS(hdr)
                 raw_frames.append({
                     "data": data,
