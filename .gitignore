@@ -11,3 +11,7 @@ __pycache__/
 /data/
 /outputs/
 /RUN_SUMMARY.md
+node_modules/
+.next/
+.vercel/
+*.tsbuildinfo

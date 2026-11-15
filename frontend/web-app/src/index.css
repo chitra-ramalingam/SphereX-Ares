@@ -1,0 +1,10 @@
+:root {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background-color: #060a12;
+  color: #f1f5f9;
+}
