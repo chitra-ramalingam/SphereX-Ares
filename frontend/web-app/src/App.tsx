@@ -6,16 +6,19 @@ import { TemporalControls } from './components/TemporalControls';
 import { SpectralControls } from './components/SpectralControls';
 import { ImageGallery } from './components/ImageGallery';
 import { CandidateModal } from './components/CandidateModal';
+import { apiUrl, errorMessage, fetchJson } from './api';
 
-// Vercel injects this at build time. Empty means same-origin, which works with
-// the Vite development proxy and never points a deployed browser at localhost.
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+interface HealthResponse {
+  status: string;
+  service: string;
+}
 
 export function App() {
   const [targets, setTargets] = useState<Target[]>([]);
   const [selectedTargetId, setSelectedTargetId] = useState<string>('');
   const [fetchedExposures, setFetchedExposures] = useState<FitsRecord[]>([]);
-  const [backendConnected, setBackendConnected] = useState<boolean>(false);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'ready' | 'offline'>('checking');
+  const [backendError, setBackendError] = useState<string>('');
   const [isQuerying, setIsQuerying] = useState<boolean>(false);
 
   // User input coordinates (Free text/numerical entry)
@@ -51,41 +54,49 @@ export function App() {
 
   // 1. Initial Load: Fetch targets and verified cutouts
   useEffect(() => {
-    fetch(`${API_BASE}/api/targets`)
-      .then((res) => res.json())
-      .then((data: Target[]) => {
+    fetchJson<HealthResponse>('/api/health')
+      .then((health) => {
+        if (health.status !== 'ok') throw new Error('Backend health check did not return ok');
+        setBackendStatus('ready');
+        setBackendError('');
+      })
+      .catch((error) => {
+        setBackendStatus('offline');
+        setBackendError(errorMessage(error));
+      });
+
+    fetchJson<Target[]>('/api/targets')
+      .then((data) => {
         if (Array.isArray(data)) {
           setTargets(data);
-          setBackendConnected(true);
         }
       })
-      .catch(() => setBackendConnected(false));
+      .catch((error) => setBackendError(errorMessage(error)));
 
-    fetch(`${API_BASE}/api/local_fits?ra=133.785&dec=-7.244`)
-      .then((res) => res.json())
-      .then((data: FitsRecord[]) => {
+    fetchJson<FitsRecord[]>('/api/local_fits?ra=133.785&dec=-7.244')
+      .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
           setFetchedExposures(data);
         }
       })
-      .catch(() => {});
+      .catch((error) => setBackendError(errorMessage(error)));
   }, []);
 
   // 2. Fetch Spectral SED data when switching to Spectral mode
   useEffect(() => {
     if (activeDomain === 'spectral') {
-      fetch(`${API_BASE}/api/sed`)
-        .then((res) => res.json())
-        .then((data: SedPoint[]) => {
+      fetchJson<SedPoint[]>('/api/sed')
+        .then((data) => {
           if (Array.isArray(data)) setSedData(data);
         })
-        .catch(() => {});
+        .catch((error) => setBackendError(errorMessage(error)));
     }
   }, [activeDomain]);
 
   // 3. User Query Action: Perform search and ingest fresh cutouts
   const handlePerformQuery = () => {
     setIsQuerying(true);
+    setBackendError('');
     setInvestigationMarker(null);
     setCandidateReport(null);
 
@@ -101,20 +112,20 @@ export function App() {
     cutoutParams.delete('max_results');
     cutoutParams.set('max_files', maxResults);
 
-    fetch(`${API_BASE}/api/search?${queryParams}`)
-      .then((res) => res.json())
-      .then(() => fetch(`${API_BASE}/api/fetch_cutouts?${cutoutParams}`))
-      .then((res) => res.json())
-      .then(() => fetch(`${API_BASE}/api/local_fits?ra=${ra}&dec=${dec}`))
-      .then((res) => res.json())
-      .then((files: FitsRecord[]) => {
+    fetchJson(`/api/search?${queryParams}`)
+      .then(() => fetchJson(`/api/fetch_cutouts?${cutoutParams}`))
+      .then(() => fetchJson<FitsRecord[]>(`/api/local_fits?ra=${encodeURIComponent(ra)}&dec=${encodeURIComponent(dec)}`))
+      .then((files) => {
         if (Array.isArray(files) && files.length > 0) {
           setFetchedExposures(files);
           setEpochIdx(0);
         }
         setIsQuerying(false);
       })
-      .catch(() => setIsQuerying(false));
+      .catch((error) => {
+        setBackendError(errorMessage(error));
+        setIsQuerying(false);
+      });
   };
 
   // Explicit user selection of benchmark targets
@@ -131,13 +142,15 @@ export function App() {
   const handleCanvasClick = (normX: number, normY: number) => {
     setInvestigationMarker({ x: normX, y: normY });
     setIsInvestigating(true);
-    fetch(`${API_BASE}/api/investigate?x=${normX}&y=${normY}&frame=${epochIdx}`)
-      .then((res) => res.json())
+    fetchJson(`/api/investigate?x=${normX}&y=${normY}&frame=${epochIdx}`)
       .then((report) => {
         setCandidateReport(report);
         setIsInvestigating(false);
       })
-      .catch(() => setIsInvestigating(false));
+      .catch((error) => {
+        setBackendError(errorMessage(error));
+        setIsInvestigating(false);
+      });
   };
 
   // Filter fetched exposures strictly by detector if specified
@@ -162,8 +175,8 @@ export function App() {
   // Streaming URL: Visible RGB composite by default, or single-band with chosen stretch/cuts
   const imageSrc =
     colormap === 'rgb'
-      ? `${API_BASE}/api/rgb`
-      : `${API_BASE}/api/render?filename=${encodeURIComponent(activeFitsFile)}&colormap=${colormap}&stretch=${stretch}&min_cut_percent=${minCutPercent}&max_cut_percent=${maxCutPercent}&clean=0`;
+      ? apiUrl('/api/rgb')
+      : apiUrl(`/api/render?filename=${encodeURIComponent(activeFitsFile)}&colormap=${encodeURIComponent(colormap)}&stretch=${encodeURIComponent(stretch)}&min_cut_percent=${minCutPercent}&max_cut_percent=${maxCutPercent}&clean=0`);
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#070b14', color: '#f1f5f9', display: 'flex', flexDirection: 'column' }}>
@@ -200,15 +213,20 @@ export function App() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', fontFamily: 'monospace' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: backendConnected ? '#10b981' : '#f59e0b' }} />
-          <span style={{ color: backendConnected ? '#10b981' : '#f59e0b' }}>
-            {backendConnected ? 'BACKEND: READY' : 'BACKEND: OFFLINE'}
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: backendStatus === 'ready' ? '#10b981' : backendStatus === 'checking' ? '#38bdf8' : '#f59e0b' }} />
+          <span style={{ color: backendStatus === 'ready' ? '#10b981' : backendStatus === 'checking' ? '#38bdf8' : '#f59e0b' }}>
+            {backendStatus === 'ready' ? 'BACKEND: READY' : backendStatus === 'checking' ? 'BACKEND: CHECKING' : 'BACKEND: OFFLINE'}
           </span>
         </div>
       </header>
 
       {/* Main Workspace */}
       <main style={{ maxWidth: '1200px', width: '100%', margin: '0 auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {backendError && (
+          <div role="alert" style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.08)', color: '#fbbf24', fontSize: '11px', fontFamily: 'monospace' }}>
+            Backend connection error: {backendError}
+          </div>
+        )}
         {/* Search & Ingestion Form */}
         <TargetSelector
           targets={targets}
