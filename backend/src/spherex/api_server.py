@@ -15,6 +15,8 @@ import json
 import logging
 import os
 import sys
+import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -48,6 +50,10 @@ logging.basicConfig(level=logging.INFO)
 
 class SpherexApiHandler(BaseHTTPRequestHandler):
     client = SPHERExClient(collections=("spherex_dr1",), timeout=25)
+    # requests.Session is not guaranteed to be thread-safe. Render serves
+    # multiple browser requests concurrently, so serialize archive access and
+    # retry transient IRSA/VOTable failures before reporting no observations.
+    archive_lock = threading.Lock()
     # Fast 0.08Â° cutout (WiseView style ~48x48 to 100x100 pixel window) for instant downloads
     service = ObservationPreviewService(download_cutout_size_deg=0.08)
     selector = ObservationSelectionService(path_resolver=service.resolve_fits_path)
@@ -128,6 +134,25 @@ class SpherexApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(image_bytes)
 
+    @classmethod
+    def search_archive(cls, **kwargs: Any) -> list[dict[str, Any]]:
+        last_error: Exception | None = None
+        with cls.archive_lock:
+            for attempt in range(3):
+                try:
+                    return list(cls.client.search(**kwargs))
+                except Exception as exc:
+                    last_error = exc
+                    LOG.warning(
+                        "IRSA search attempt %d/3 failed: %s",
+                        attempt + 1,
+                        exc,
+                    )
+                    if attempt < 2:
+                        time.sleep(2**attempt)
+        assert last_error is not None
+        raise last_error
+
     def handle_targets(self) -> None:
         """Serve target definitions directly from your team's backend/src/spherex/targets.py."""
         result = []
@@ -157,7 +182,7 @@ class SpherexApiHandler(BaseHTTPRequestHandler):
         end_date = query.get("end_date", [None])[0]
 
         try:
-            observations = self.client.search(
+            observations = self.search_archive(
                 ra=ra,
                 dec=dec,
                 radius=radius,
@@ -201,7 +226,7 @@ class SpherexApiHandler(BaseHTTPRequestHandler):
         mode_str = query.get("mode", ["time"])[0].lower()
         mode = SelectionMode.SPECTRAL if mode_str == "spectral" else SelectionMode.TIME
 
-        observations = self.client.search(ra=ra, dec=dec, radius=radius, max_results=50)
+        observations = self.search_archive(ra=ra, dec=dec, radius=radius, max_results=50)
         if not observations:
             self.send_json({"selected": [], "explanation": "No observations found at this location."})
             return
@@ -226,7 +251,7 @@ class SpherexApiHandler(BaseHTTPRequestHandler):
 
         try:
             # 1. Discover observations at user coordinates (fast DR1 targeted search)
-            observations = self.client.search(
+            observations = self.search_archive(
                 ra=ra,
                 dec=dec,
                 radius=radius,
