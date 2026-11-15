@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: spherex-science-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: "pip install -e ."
+    startCommand: "python backend/src/spherex/api_server.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: MPLCONFIGDIR
+        value: /tmp/matplotlib_spherex
