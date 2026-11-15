@@ -112,8 +112,7 @@ export function App() {
     cutoutParams.delete('max_results');
     cutoutParams.set('max_files', maxResults);
 
-    fetchJson(`/api/search?${queryParams}`)
-      .then(() => fetchJson(`/api/fetch_cutouts?${cutoutParams}`))
+    fetchJson(`/api/fetch_cutouts?${cutoutParams}`)
       .then(() => fetchJson<FitsRecord[]>(`/api/local_fits?ra=${encodeURIComponent(ra)}&dec=${encodeURIComponent(dec)}`))
       .then((files) => {
         if (Array.isArray(files) && files.length > 0) {
